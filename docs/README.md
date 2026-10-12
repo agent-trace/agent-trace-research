@@ -1,6 +1,6 @@
 # Agent Trace Research 文档索引
 
-正式文档按主题分为项目背景、JSON 存储与记忆生成三组。实验代码和复现入口位于仓库的 `experiments/`（语料画像脚本位于 `experiments/payload-profile/`），运行数据与内部证据保存在 gitignored 的 `docs/temp/`。
+正式文档按主题分为项目背景、JSON 存储、记忆生成与 ARC-AGI-3 四组。实验代码和复现入口位于仓库的 `experiments/`（语料画像脚本位于 `experiments/payload-profile/`），运行数据与内部证据保存在 gitignored 的 `docs/temp/`。
 
 ## 项目背景
 
@@ -31,6 +31,14 @@ JSON 存储流程图位于 `json-storage/assets/`，由原理文档、报告和�
 | 调研 | [生成方法调研（研究、实现与产品）](memory-generation/research/memory-generation-methods-2026-10-09.md) | 从轨迹生成经验记忆的研究、开源组件与实现、产品中的记忆机制与相邻可迁移方向，含完整术语与记忆分类 |
 | 调研 | [信号与选样调研（trace 挖掘、归因评估、用户偏好、data agent）](memory-generation/research/memory-generation-signals-2026-10-09.md) | trace 库挖掘与近似 trace 归类、失败归因与评估、用户偏好与纠正、data agent 的经验记忆 |
 | 调研 | [输入、存储与评测调研](memory-generation/research/memory-generation-input-storage-evaluation-2026-10-09.md) | trace 预处理、trace 标识与内容采集、生成侧模型接口、存储溯源与生命周期、评测与公开数据集分析 |
+
+## ARC-AGI-3 与 VISTA
+
+| 类型 | 文档 | 内容 |
+|---|---|---|
+| 说明 | [VISTA 运行时数据流与逻辑流](arcagi/vista-runtime-data-flow.md) | ARC-AGI-3 与 VISTA 背景，模型可见的输入与约束，单步时序，Agent 数据（会话上下文、截图、事件表、笔记、恢复内容）的写入时点与读取方式，会话交接，与 trace 数据模型的对应，以及实现组件 |
+
+VISTA 示意图位于 `arcagi/assets/`。
 
 ## 临时资料
 

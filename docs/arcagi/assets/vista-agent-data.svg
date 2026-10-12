@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="800" viewBox="0 0 1500 800" role="img" aria-labelledby="title desc">
+  <title id="title">VISTA Agent 数据的存储与读取</title>
+  <desc id="desc">左侧为 Claude Code 会话中的模型与会话上下文，中间为模型可经工具读写的五类数据，右侧为写入这些数据的 VISTA 控制器与游戏环境；橙色实线为写入，绿色虚线为读取进入会话上下文，底部为模型不可读的运行记录。</desc>
+  <defs>
+    <style>
+      .lane-bg { fill:#fbfcfe; stroke:#d7dee8; stroke-width:1.4; }
+      .proc { fill:#ffffff; stroke:#52657a; stroke-width:2; }
+      .ext { fill:#f3f4f6; stroke:#6b7280; stroke-width:2; }
+      .ctx { fill:#f5f3ff; stroke:#6d5bd0; stroke-width:2.2; }
+      .file { fill:#eef8f1; stroke:#397554; stroke-width:2; }
+      .mem { fill:#eef8f1; stroke:#397554; stroke-width:2; stroke-dasharray:7 4; }
+      .hand { fill:#eef2ff; stroke:#4f5bd5; stroke-width:2; }
+      .other { fill:#f3f4f6; stroke:#9aa3ad; stroke-width:1.6; }
+      .title { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:26px; font-weight:700; fill:#1f2933; text-anchor:middle; }
+      .lane-title { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:17px; font-weight:700; fill:#334155; }
+      .label { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:19px; font-weight:700; fill:#1f2933; text-anchor:middle; }
+      .text { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:15px; fill:#44515f; text-anchor:middle; }
+      .path { font-family:Consolas,"DejaVu Sans Mono",monospace; font-size:14px; fill:#44515f; text-anchor:middle; }
+      .note { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:15px; fill:#44515f; }
+      .note-end { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:15px; fill:#44515f; text-anchor:end; }
+      .call-t { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:15px; fill:#1f2933; text-anchor:middle; }
+      .read-t { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:15px; fill:#2f6b49; text-anchor:middle; }
+      .write-t { font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:15px; fill:#8a4b12; text-anchor:middle; }
+      .arrow { stroke:#52657a; stroke-width:2; fill:none; marker-end:url(#arrow); }
+      .bi { stroke:#52657a; stroke-width:2; fill:none; marker-start:url(#arrow); marker-end:url(#arrow); }
+      .write { stroke:#b86a1f; stroke-width:2; fill:none; marker-end:url(#arrow-orange); }
+      .read { stroke:#397554; stroke-width:2.2; fill:none; stroke-dasharray:7 5; marker-end:url(#arrow-green); }
+      .rw { stroke:#397554; stroke-width:2.2; fill:none; stroke-dasharray:7 5; marker-start:url(#arrow-green); marker-end:url(#arrow-green); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52657a"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b86a1f"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#397554"/>
+    </marker>
+  </defs>
+
+  <rect width="1500" height="800" fill="#ffffff"/>
+  <text x="750" y="40" class="title">VISTA Agent 数据的存储与读取</text>
+
+  <!-- Claude Code 会话 -->
+  <rect x="20" y="66" width="320" height="610" rx="12" class="lane-bg"/>
+  <text x="36" y="92" class="lane-title">Claude Code 会话 k</text>
+  <rect x="50" y="110" width="260" height="64" rx="8" class="proc"/>
+  <text x="180" y="149" class="label">模型</text>
+  <rect x="50" y="230" width="260" height="430" rx="10" class="ctx"/>
+  <text x="180" y="268" class="label">会话上下文</text>
+  <text x="180" y="300" class="text">系统提示</text>
+  <text x="180" y="326" class="text">首条消息或恢复内容</text>
+  <text x="180" y="352" class="text">模型输出与工具调用</text>
+  <text x="180" y="378" class="text">工具结果（含图片）</text>
+  <text x="180" y="630" class="text">随会话结束丢弃</text>
+  <path d="M140 174 L140 230" class="arrow"/>
+  <text x="132" y="208" class="note-end">追加输出</text>
+  <path d="M220 230 L220 174" class="arrow"/>
+  <text x="228" y="208" class="note">每次请求发送</text>
+
+  <!-- 工具调用 -->
+  <path d="M310 142 L1120 142" class="arrow"/>
+  <text x="715" y="132" class="call-t">工具调用：play、inspect 等</text>
+
+  <!-- Agent 数据 -->
+  <rect x="600" y="200" width="300" height="76" rx="8" class="file"/>
+  <text x="750" y="232" class="label">截图</text>
+  <text x="750" y="258" class="path">player/screenshots/</text>
+  <rect x="600" y="296" width="300" height="76" rx="8" class="mem"/>
+  <text x="750" y="328" class="label">事件表</text>
+  <text x="750" y="354" class="text">VISTA 进程内存</text>
+  <rect x="600" y="392" width="300" height="76" rx="8" class="file"/>
+  <text x="750" y="424" class="label">GUIDE.md</text>
+  <text x="750" y="450" class="text">跨关的游戏理解</text>
+  <rect x="600" y="488" width="300" height="76" rx="8" class="file"/>
+  <text x="750" y="520" class="label">WORKING.md</text>
+  <text x="750" y="546" class="text">本关的计划与草稿</text>
+  <rect x="600" y="584" width="300" height="76" rx="8" class="hand"/>
+  <text x="750" y="616" class="label">恢复内容</text>
+  <text x="750" y="642" class="text">交接时生成</text>
+
+  <!-- 读取：进入会话上下文 -->
+  <path d="M600 238 L310 238" class="read"/>
+  <text x="455" y="228" class="read-t">play 返回 · inspect 等</text>
+  <path d="M600 334 L310 334" class="read"/>
+  <text x="455" y="324" class="read-t">history</text>
+  <path d="M600 430 L310 430" class="rw"/>
+  <text x="455" y="420" class="read-t">read / write_guide</text>
+  <path d="M600 526 L310 526" class="rw"/>
+  <text x="455" y="516" class="read-t">read / write_working</text>
+  <path d="M600 622 L310 622" class="read"/>
+  <text x="455" y="612" class="read-t">新会话首条消息</text>
+
+  <!-- VISTA 控制器与游戏环境 -->
+  <rect x="1120" y="110" width="160" height="550" rx="10" class="proc"/>
+  <text x="1200" y="380" class="label">VISTA</text>
+  <text x="1200" y="406" class="label">控制器</text>
+  <rect x="1340" y="355" width="140" height="76" rx="8" class="ext"/>
+  <text x="1410" y="400" class="label">游戏环境</text>
+  <path d="M1280 393 L1340 393" class="bi"/>
+
+  <!-- 写入 -->
+  <path d="M1120 238 L900 238" class="write"/>
+  <text x="1010" y="228" class="write-t">每次 play：全部帧</text>
+  <path d="M1120 334 L900 334" class="write"/>
+  <text x="1010" y="324" class="write-t">每次 play：追加</text>
+  <path d="M1120 430 L900 430" class="write"/>
+  <text x="1010" y="420" class="write-t">启动：写入初值</text>
+  <path d="M1120 526 L900 526" class="write"/>
+  <text x="1010" y="516" class="write-t">过关：归档后清空</text>
+  <path d="M1120 622 L900 622" class="write"/>
+  <text x="1010" y="612" class="write-t">交接：组装</text>
+
+  <!-- 运行记录 -->
+  <path d="M1200 660 L1200 704" class="arrow"/>
+  <rect x="370" y="704" width="1110" height="76" rx="8" class="other"/>
+  <text x="925" y="736" class="label">运行记录（模型不可读）</text>
+  <text x="925" y="762" class="text">动作日志、原始观测、模型输出、会话记录等</text>
+
+  <!-- 图例 -->
+  <rect x="1300" y="110" width="180" height="150" rx="8" fill="#ffffff" stroke="#d7dee8" stroke-width="1.4"/>
+  <rect x="1314" y="126" width="26" height="18" rx="3" class="file"/>
+  <text x="1348" y="141" class="note">文件</text>
+  <rect x="1314" y="156" width="26" height="18" rx="3" class="mem"/>
+  <text x="1348" y="171" class="note">内存</text>
+  <path d="M1314 196 L1340 196" class="write"/>
+  <text x="1348" y="201" class="note">写入</text>
+  <path d="M1314 226 L1340 226" class="read"/>
+  <text x="1348" y="231" class="note">读入上下文</text>
+</svg>
