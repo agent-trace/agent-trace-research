@@ -88,17 +88,46 @@ Keep concise, durable, revisable game understanding in `GUIDE.md`; use `WORKING.
 
 **`play`**：`action` 取值为 `RESET` 与 `ACTION1`–`ACTION7`。工具说明给出各动作的常见含义与按键：ACTION1–4 通常对应上、下、左、右（W/S/A/D），ACTION5 为交互类动作（如选择、旋转），ACTION6 为点击，ACTION7 为撤销。具体效果由游戏决定，模型需通过试探确认。ACTION6 的坐标 `x`、`y` 取值 0–511，对应 512×512 截图上的像素位置。示例：`{"action": "ACTION3"}`。
 
-**`inspect` 与 `read_pixels`**：两者参数结构相同。
+**`inspect` 与 `read_pixels`**：两者的顶层参数相同，由 `question` 与 `views` 组成；`views` 中的每一项（下称"视图"）指定从哪张截图的哪个区域取数据。
 
-- `question`：模型用一句话写明这次查看要弄清什么，例如"方块现在位于哪一格"。工具不解析这段文字，它保留在调用记录中，用于让模型先明确目的再取图。
-- `views`：取图请求列表。每一项指定一张图，包括回合号 `turn`、该回合内的帧号 `frame`（缺省为最后一帧）、裁剪区域 `region`（缺省为整张图）和一个简短标签 `label`。一次调用可以请求多张图，例如对比不同回合，或放大同一画面的多个局部。
+| 参数 | 层级 | `inspect` | `read_pixels` | 含义 |
+|---|---|---|---|---|
+| `question` | 顶层 | 必填 | 必填 | 这次查看要回答的问题，至多 1,024 字符。工具不解析这段文字，它随调用保留在会话上下文中，用于让模型先明确目的再取图 |
+| `views` | 顶层 | 1–16 项 | 1–64 项 | 视图列表，结果按列表顺序返回 |
+| `label` | 视图 | 必填 | 必填 | 模型给这个视图起的简短名称，至多 128 字符，例如 `"bl_t0"`（第 0 回合左下角）。它只出现在调用参数中，结果以序号 `index` 与回合、帧、区域标识各视图 |
+| `turn` | 视图 | 必填 | 必填 | 回合号，选择该回合的截图 |
+| `frame` | 视图 | 可选 | 可选 | 该回合内的帧号；缺省为最后一帧。动画回合有多帧，可选范围在结果的 `available_frame_range` 中给出 |
+| `region` | 视图 | 可选，缺省为整张图 | 必填 | 矩形区域 `{x, y, width, height}`，坐标系与 ACTION6 相同：512×512 截图的像素坐标，原点在左上角。游戏网格的一格对应 8×8 像素 |
+| `rows`、`columns` | 视图 | — | 必填 | 把区域等分成的行数与列数；每格取中心像素的颜色。一次调用所有视图的 `rows × columns` 之和至多 4,096 |
 
-`inspect` 把指定区域裁剪后无平滑放大到 512×512 返回；`read_pixels` 把区域按给定行列数划分为网格，取每格中心像素的颜色，返回符号矩阵。示例：
+两者的返回：
+
+- `inspect`：每个视图一张 PNG。区域按原比例无平滑放大，长边为 512 像素；例如 360×32 的区域返回 512×45 的图片。每张图片前附一行标识，例如 `<inspection_visual index="1" count="4" turn="0" frame="0" region="0,405,105,107" size="502x512">`。
+- `read_pixels`：一份调色板，把颜色映射为单字符符号，例如 `"2": "#262626"`；每个视图返回 `rows` 个字符串，每个字符串含 `columns` 个符号。
+
+用途上，`inspect` 用于查看形状与布局，例如放大图标、对比两个回合的同一区域；`read_pixels` 用于获取精确颜色与位置，例如把整张图按 64×64 读出与游戏网格逐格对应的颜色矩阵。
+
+示例一：`inspect` 对比第 0 回合与第 10 回合左下角图标是否变化。
 
 ```json
 {
-  "question": "What are the key elements: character position, block/target, and any icons?",
-  "views": [{"label": "full", "turn": 0}]
+  "question": "Compare icons: does the bottom-left icon change from turn 0 to turn 10?",
+  "views": [
+    {"label": "bl_t0",  "turn": 0,  "region": {"x": 0, "y": 405, "width": 105, "height": 107}},
+    {"label": "bl_t10", "turn": 10, "region": {"x": 0, "y": 405, "width": 105, "height": 107}}
+  ]
+}
+```
+
+示例二：`read_pixels` 把第 0 回合整张图按 32×32 采样，绘制迷宫地图。每格 16×16 像素，对应游戏网格的 2×2 格。
+
+```json
+{
+  "question": "Map the maze: which cells are floor, walls, the player, the block, and target icons?",
+  "views": [
+    {"label": "grid32", "turn": 0, "region": {"x": 0, "y": 0, "width": 512, "height": 512},
+     "rows": 32, "columns": 32}
+  ]
 }
 ```
 
@@ -164,7 +193,7 @@ Keep concise, durable, revisable game understanding in `GUIDE.md`; use `WORKING.
 
 | 工具 | 控制器的读写 | 返回 |
 |---|---|---|
-| `inspect` | 按回合号与帧号读截图，按区域裁剪后无平滑放大到 512×512 | 图片，附回合号、帧号与该回合的可用帧范围 |
+| `inspect` | 按回合号与帧号读截图，按区域裁剪后按原比例无平滑放大，长边为 512 像素 | 图片，附回合号、帧号与该回合的可用帧范围 |
 | `read_pixels` | 按回合号与帧号读截图，在区域内按行列网格取每格中心像素 | 颜色符号矩阵与调色板 |
 | `history` | 读事件表 | `events`：逐回合的动作与结果；`attempts`：本关每次尝试的摘要 |
 | `read_guide` / `read_working` | 读笔记文件 | 全文 |
@@ -196,7 +225,7 @@ Keep concise, durable, revisable game understanding in `GUIDE.md`; use `WORKING.
 各数据的内容与作用：
 
 - **会话上下文**：模型的全部工作记忆。模型看到的画面、动作结果和笔记内容都要先进入上下文才能参与推理。
-- **截图**：环境返回的 64×64 网格按 8 倍放大并叠加网格线，渲染为 512×512 PNG，逐帧无损保存。它是模型回看历史画面的唯一来源；动画帧只在模型主动调用 `inspect` 时可见。
+- **截图**：环境返回的 64×64 网格按 8 倍放大并叠加网格线，渲染为 512×512 PNG，逐帧无损保存。它是模型回看历史画面的唯一来源；动画帧只在模型主动调用 `inspect` 或 `read_pixels` 时可见。
 - **事件表**：每条记录包含操作序号、回合号、动作（ACTION6 附坐标），以及结果元数据：状态、关卡进度、可用动作、是否过关、帧数等。它是模型查询动作历史的唯一来源，内容只有文字，不含画面。
 - **GUIDE.md**：模型对游戏规则与机制的长期理解，跨关保留，至多 64KB。
 - **WORKING.md**：模型在本关的计划、预期与待验证的矛盾点，至多 16KB。每次写入时，控制器在 `private/working_memory_provenance.json` 记录写入时的回合号、状态与关卡进度；会话异常重启时，这一记录随 WORKING 全文发给新会话，标明这份草稿保存于哪个回合。过关时 WORKING 归档到 `private/working_memory_archive/` 后清空，新关从空白草稿开始。
@@ -230,7 +259,7 @@ VISTA 在运行期间写入以下记录，运行时不回读，供运行结束�
 | 动作日志 | `private/action_log.jsonl` | 每次 `play` 调用的参数、校验结果与执行结果 | VISTA 控制器 |
 | 原始观测 | `private/responses/step_NNNN.json` | 每步的原始数值网格、状态、进度与可用动作 | VISTA 控制器 |
 | 录像 | `private/recordings/<scorecard>/*.jsonl` | 每步的时间戳与原始网格 | arc_agi SDK（VISTA 开启录制） |
-| 模型输出 | `private/claude_io/segment_K.stdout.jsonl` | thinking、正文、tool_use、tool_result（内嵌 base64 图片）、每次请求的 usage | VISTA 捕获 Claude Code 输出流 |
+| 模型输出 | `private/claude_io/segment_K.stdout.jsonl` | Claude Code 的 stream-json 输出：thinking、正文、tool_use、tool_result（内嵌 base64 图片）、每次请求的 usage，以及逐 token 的 thinking 进度事件 | VISTA 捕获 Claude Code 输出流 |
 | MCP 记录 | `private/claude_io/segment_K.bridge.jsonl` | 工具请求与响应，令牌已脱敏 | VISTA |
 | 会话记录 | `private/claude_config/projects/-workspace/<session>.jsonl` | Claude Code 自身保存的会话记录 | Claude Code |
 | 压缩事件与交接记录 | `private/claude_io/segment_K.compact.jsonl`、`private/compact_recovery.jsonl` | PreCompact / Stop hook 事件；检查点保存、新会话开始、WORKING 归档 | VISTA |
@@ -249,7 +278,16 @@ VISTA 在运行期间写入以下记录，运行时不回读，供运行结束�
 | `player/screenshots/` | 3.6MB | 888 |
 | `private/action_log.jsonl` | 248KB | 1 |
 
-stdout 的体量来自逐条内嵌的 base64 图片与 thinking 文本；模型可读的截图只占 3.6MB。
+stdout（10 个会话合计 242MB）按消息类型的构成：
+
+| 类型 | 大小 | 条数 | 内容 |
+|---|---|---|---|
+| `system` / `thinking_tokens` | 229MB | 约 117 万 | 每生成一个 thinking token 输出一条进度事件，只含 token 计数 |
+| `user` / `tool_result` | 7.5MB | 773 | 工具返回，其中 base64 图片 5.8MB（1,218 张） |
+| `assistant` | 5.1MB | 1,833 | thinking、正文与 tool_use |
+| 其他 | 不足 0.1MB | 19 | 会话初始化、状态、结果汇总 |
+
+有效内容约 13MB，其余为 thinking 进度事件。模型可读的截图共 3.6MB。
 
 ## 6. 会话生命周期与交接
 
@@ -312,7 +350,7 @@ stdout 的体量来自逐条内嵌的 base64 图片与 thinking 文本；模型�
 | 环境动作 | 动作日志、原始观测、录像 | 回合号 `turn`；录像时间戳 |
 | 视觉证据 | 截图 PNG | 回合号与帧号 |
 
-回合号贯穿所有会话，适合作为跨会话关联的主键。长 payload 主要来自 tool_result 中的 base64 图片与 thinking 文本。
+回合号贯穿所有会话，适合作为跨会话关联的主键。长 payload 主要来自 tool_result 中的 base64 图片、thinking 文本与 `write_*` 提交的笔记全文。
 
 ## 8. 实现组件
 
