@@ -37,6 +37,7 @@ JSON 存储流程图位于 `json-storage/assets/`，由原理文档、报告和�
 | 类型 | 文档 | 内容 |
 |---|---|---|
 | 说明 | [VISTA 运行时数据流与逻辑流](arcagi/vista-runtime-data-flow.md) | ARC-AGI-3 与 VISTA 背景，模型可见的输入与约束，单步时序，Agent 数据（会话上下文、截图、事件表、笔记、恢复内容）的写入时点与读取方式，会话交接，与 trace 数据模型的对应，以及实现组件 |
+| 设计 | [VISTA 运行数据的 OpenTelemetry 存储设计](https://github.com/ruined404cjy/VISTA/blob/trace-v5/docs/trace-storage-design.md)（位于 VISTA trace 版仓库，tag `trace-v5`） | `--store pg` 下即时数据与审计数据经 OTel 写入 `events` 宽表：两条导出通道与 Collector pipeline、表与 span 设计、读屏障、原文归档与还原、运行结束时的入库核对、基于 trace 的断点续跑、验证结果与运行方式 |
 
 VISTA 示意图位于 `arcagi/assets/`。
 
