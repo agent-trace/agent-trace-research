@@ -41,6 +41,8 @@ JSON 存储流程图位于 `json-storage/assets/`，由原理文档、报告和�
 | 报告 | [VISTA trace 版在 ARC-AGI-3 上的实验报告](https://github.com/agent-trace/VISTA/blob/arc3-trace/docs/arc3-experiments/arc3-trace-experiment-report.md)（位于 VISTA trace 版仓库 `docs/arc3-experiments/`） | GPT-6 Luna 在 25 个公开游戏上两阶段运行的结果与官方基线对照，DeepSeek-V4.1-Flash 补充对比，存储等价性、开销与归档验证，执行异常、限制与后续测试 |
 | 汇报 | [VISTA trace 版实验：实现与结果](https://github.com/agent-trace/VISTA/blob/arc3-trace/docs/arc3-experiments/arc3-trace-briefing.md) | 面向已了解 VISTA 的读者：trace 版数据流与读写逻辑、续跑原理、实验结果与边界 |
 | 诊断 | [GPT-6 Luna 推理与动作效率诊断](https://github.com/agent-trace/VISTA/blob/arc3-trace/docs/arc3-experiments/luna-reasoning-diagnostics-20261016.md) | 25 个游戏的可见输出、笔记版本与规则误判，9 个案例的本地验证 |
+| 问题 | [VISTA 框架在 Luna 全量测试中暴露的问题](https://github.com/agent-trace/VISTA/blob/arc3-trace/docs/arc3-experiments/vista-framework-issues-20261020.md) | 步数效率与运行可靠性问题、trace 版暂缓问题，附代码位置、步号级证据与验证方法 |
+| 分析 | [VISTA 框架分析：已实现改进、现存缺陷与优化方向](https://github.com/agent-trace/VISTA/blob/arc3-trace/docs/arc3-experiments/vista-framework-analysis-20261020.md) | 已实现改进与效果，现存缺陷分类，trace 扩展的前置问题，优化优先级与预期结果 |
 
 实验报告的证据快照（manifest 指定字段、官方基线、只读查询与采集脚本）位于同一目录的 `evidence/`。VISTA 示意图位于 `arcagi/assets/`。
 
