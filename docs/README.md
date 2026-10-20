@@ -37,9 +37,12 @@ JSON 存储流程图位于 `json-storage/assets/`，由原理文档、报告和�
 | 类型 | 文档 | 内容 |
 |---|---|---|
 | 说明 | [VISTA 运行时数据流与逻辑流](arcagi/vista-runtime-data-flow.md) | ARC-AGI-3 与 VISTA 背景，模型可见的输入与约束，单步时序，Agent 数据（会话上下文、截图、事件表、笔记、恢复内容）的写入时点与读取方式，会话交接，与 trace 数据模型的对应，以及实现组件 |
-| 设计 | [VISTA 运行数据的 OpenTelemetry 存储设计](https://github.com/ruined404cjy/VISTA/blob/trace-v5.1/docs/trace-storage-design.md)（位于 VISTA trace 版仓库，tag `trace-v5.1`；部署与使用见同目录 `arc3-trace-usage.md`） | `--store pg` 下即时数据与审计数据经 OTel 写入 `events` 宽表：两条导出通道与 Collector pipeline、表与 span 设计、读屏障、原文归档与还原、运行结束时的入库核对、基于 trace 的断点续跑、验证结果与运行方式 |
+| 设计 | [VISTA 运行数据的 OpenTelemetry 存储设计](https://github.com/agent-trace/VISTA/blob/trace-v5.4/docs/trace-storage-design.md)（位于 VISTA trace 版仓库，tag `trace-v5.4`；部署与使用见同目录 `arc3-trace-usage.md`） | `--store pg` 下即时数据与审计数据经 OTel 写入 `events` 宽表：两条导出通道与 Collector pipeline、表与 span 设计、读屏障、原文归档与还原、运行结束时的入库核对、基于 trace 的断点续跑、验证结果与运行方式 |
+| 报告 | [VISTA trace 版在 ARC-AGI-3 上的实验报告](https://github.com/agent-trace/VISTA/blob/arc3-trace/docs/arc3-experiments/arc3-trace-experiment-report.md)（位于 VISTA trace 版仓库 `docs/arc3-experiments/`） | GPT-6 Luna 在 25 个公开游戏上两阶段运行的结果与官方基线对照，DeepSeek-V4.1-Flash 补充对比，存储等价性、开销与归档验证，执行异常、限制与后续测试 |
+| 汇报 | [VISTA trace 版实验：实现与结果](https://github.com/agent-trace/VISTA/blob/arc3-trace/docs/arc3-experiments/arc3-trace-briefing.md) | 面向已了解 VISTA 的读者：trace 版数据流与读写逻辑、续跑原理、实验结果与边界 |
+| 诊断 | [GPT-6 Luna 推理与动作效率诊断](https://github.com/agent-trace/VISTA/blob/arc3-trace/docs/arc3-experiments/luna-reasoning-diagnostics-20261016.md) | 25 个游戏的可见输出、笔记版本与规则误判，9 个案例的本地验证 |
 
-VISTA 示意图位于 `arcagi/assets/`。
+实验报告的证据快照（manifest 指定字段、官方基线、只读查询与采集脚本）位于同一目录的 `evidence/`。VISTA 示意图位于 `arcagi/assets/`。
 
 ## 临时资料
 
