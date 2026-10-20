@@ -12,7 +12,7 @@
 | [信号与选样调研（trace 挖掘、归因评估、用户偏好、data agent）](memory-generation-signals-2026-10-09.md) | trace 库挖掘与近似 trace 归类；失败归因、评估与记忆的关联；用户偏好与纠正；data agent 的经验记忆 | 第 4–7 节 |
 | [输入、存储与评测调研](memory-generation-input-storage-evaluation-2026-10-09.md) | trace 预处理与生成输入；trace 中的标识与内容采集；生成侧的模型接口；存储、溯源与生命周期；评测；公开数据集上的分析 | 第 4–9 节 |
 
-配图位于 `assets/`，由生成方法调研引用。
+配图位于 `assets/`，由生成方法调研引用。汇报幻灯片（快照）位于 `presentations/`。
 
 ## 跨报告的主要发现
 
