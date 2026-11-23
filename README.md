@@ -1,6 +1,10 @@
 # Agent Trace Research
 
-Agent Trace 的公开调研、复现指南和实验设计。仓库当前重点是 Trace 中多字段 JSON、动态属性和长 payload 的存储方案，覆盖 openGauss、XStore 与 ClickHouse。
+Agent Trace 的公开调研、复现指南和实验设计。仓库当前重点是 Trace 中多字段 JSON、动态属性和长 payload 的存储方案，覆盖 openGauss、DStore 与 ClickHouse。
+
+## 本地工作区入口
+
+本目录集中保存综合研究与相关实验。[图查询验证仓](local/graph-test/README.md)位于本地 `local/`，保留独立Git并由外层忽略；组件源码统一位于[../src](../src/README.md)。后训练与VISTA分别从工作区根索引进入。
 
 ## 实验
 
@@ -12,7 +16,7 @@ Agent Trace 的公开调研、复现指南和实验设计。仓库当前重点�
 | [JSON 存储阶段三](experiments/json-storage-stage3/README.md) | 已完成；四种长 payload 布局在 openGauss 与 ClickHouse 25.12 上的写入、读取、混合负载与对象故障实验 |
 | [语料画像](experiments/payload-profile/profile_open_swe.py) | Open-SWE-Traces 真实轨迹的 payload 大小分布、压缩比与 instrumentation 写放大 |
 
-ARM 主机上 XStore 与 ClickHouse 23.3 的阶段三实验程序与回传工具位于分支 `stage3/xstore-yellow-handoff`。
+ARM 主机上 GaussVector / DStore 行存与 ClickHouse 23.3 的阶段三实验程序与回传工具位于分支 `stage3/xstore-yellow-handoff`。黄区部署配置为 `using DStore engine=on`；工件标识说明见[被测引擎与存储模型](docs/json-storage/stage3-payload-principles.md#14-被测引擎与存储模型)。
 
 ## 文档
 
@@ -20,11 +24,11 @@ ARM 主机上 XStore 与 ClickHouse 23.3 的阶段三实验程序与回传工具
 
 | 文档 | 用途 |
 |---|---|
-| [JSON 存储设计决策](docs/json-storage/design-decision.md) | openGauss、XStore 与 ClickHouse 的逻辑模型、参数取值与判据、真实语料画像和证据缺口 |
+| [JSON 存储设计决策](docs/json-storage/design-decision.md) | openGauss、DStore 与 ClickHouse 的逻辑模型、参数取值与判据、真实语料画像和证据缺口 |
 | [JSON 存储设计调研](docs/json-storage/design-survey.md) | 代表性系统、论文、项目现状与设计方向 |
 | 阶段一：多字段 JSON | [实验设计](docs/json-storage/stage1-multifield-design.md) · [报告](docs/json-storage/stage1-multifield-report.md) |
 | 阶段二：JSON 表示比较 | [JSONB 与 Native JSON 原理](docs/json-storage/stage2-representation-principles.md) · [实验设计](docs/json-storage/stage2-representation-design.md) · [调优矩阵设计](docs/json-storage/stage2-tuning-design.md) · [报告](docs/json-storage/stage2-representation-report.md) · [组内汇报](docs/json-storage/stage2-representation-briefing.md) |
-| 阶段三：长 payload 布局 | [实验设计](docs/json-storage/stage3-payload-design.md) · [原理与设计](docs/json-storage/stage3-payload-principles.md) · [x86 报告](docs/json-storage/stage3-payload-x86-report.md) · [XStore 报告](docs/json-storage/stage3-payload-xstore-report.md) · [三台主机组内汇报](docs/json-storage/stage3-payload-briefing.md) |
+| 阶段三：长 payload 布局 | [实验设计](docs/json-storage/stage3-payload-design.md) · [原理与设计](docs/json-storage/stage3-payload-principles.md) · [x86 报告](docs/json-storage/stage3-payload-x86-report.md) · [DStore 报告](docs/json-storage/stage3-payload-xstore-report.md) · [三台主机组内汇报](docs/json-storage/stage3-payload-briefing.md) |
 | [OTel 与 Langfuse 学习指南](docs/project-background/otel-langfuse-study-guide.md) | OTel、Collector、GenAI 语义和 Langfuse 摄入链路 |
 | [标准 openGauss 行存复现指南](docs/project-background/trace-ingestion-demo-blue-zone-guide.md) | 历史固定版本的 openGauss row profile 复现 |
 | [GV xstore 复现指南](docs/project-background/trace-ingestion-demo-yellow-zone-guide.md) | 历史固定版本的 GV xstore 复现 |
@@ -32,7 +36,7 @@ ARM 主机上 XStore 与 ClickHouse 23.3 的阶段三实验程序与回传工具
 ## 当前状态
 
 - 资料修订日期：2026-10-09。JSON 存储三个阶段的实验与报告均已完成，结论收敛于[设计决策](docs/json-storage/design-decision.md)；待定项与后续实验见其第 7 节。
-- 阶段三覆盖 x86 主机（openGauss 6.0.0、ClickHouse 25.12.11.4）与两台 ARM 主机（XStore、ClickHouse 23.3.10.5）。
+- 阶段三覆盖 x86 主机（openGauss 6.0.0、ClickHouse 25.12.11.4）与两台 ARM 主机（DStore、ClickHouse 23.3.10.5）。
 - 运行数据与内部证据保存在 gitignored 的 `docs/temp/`，不随仓库发布。
 - exporter 远端 main：2026-09-07 · `81b55be`；SPEC v1.8 仍冻结 18 列最小 OTel schema。
 - trace-synthesis 远端 main：2026-09-07 · `ef3be14`；v4 database catalog revision 仍为 `2026-09-02.3`、28 列。

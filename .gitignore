@@ -4,6 +4,11 @@ docs/temp/
 .superpowers/
 .codex/
 .worktrees/
+# Local workspace migration inventories and rollback copies
+/docs/workspace-management/local-organization-20261123/
+
+# Local experiment repositories and assets retain their own Git history.
+/local/
 
 # Local temporary files and caches
 .tmp/

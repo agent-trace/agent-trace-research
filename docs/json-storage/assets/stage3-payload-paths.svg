@@ -40,11 +40,11 @@
   <text x="525" y="184" class="text">表内同时存有普通列与载荷</text>
 
   <rect x="60" y="230" width="315" height="300" rx="9" class="row"/>
-  <text x="217" y="260" class="label">行存（openGauss、XStore）</text>
+  <text x="217" y="260" class="label">行存（openGauss、DStore）</text>
   <text x="217" y="292" class="text">按行组织，一页同时容纳各列</text>
   <text x="217" y="322" class="text">openGauss：大值压缩后移入 TOAST，</text>
   <text x="217" y="344" class="text">主行只留指针，heap 10.85 MB</text>
-  <text x="217" y="374" class="text">XStore：载荷不压缩、存放在主表 heap 内，</text>
+  <text x="217" y="374" class="text">DStore：载荷不压缩、存放在主表 heap 内，</text>
   <text x="217" y="396" class="text">heap 186.5 MB（窄表 11.0 MB）</text>
   <text x="217" y="430" class="text">按索引取 256 行：不受影响</text>
   <text x="217" y="454" class="text">回表过滤、顺序扫描、聚合：</text>

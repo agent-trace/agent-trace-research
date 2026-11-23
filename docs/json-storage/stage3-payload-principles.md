@@ -2,7 +2,7 @@
 
 > 文档日期：2026-09-24
 >
-> 适用版本：XStore（GaussVector 103.0.0 release 构建）、openGauss 6.0.0、ClickHouse 23.3.10.5 与 25.12.11.4
+> 适用版本：DStore（GaussVector 103.0.0 release 构建）、openGauss 6.0.0、ClickHouse 23.3.10.5 与 25.12.11.4
 >
 > 对象：`same_table`、`separate`、`full_core`、`asset_ref` 四种长载荷布局，及其在行存与列存引擎中的实现
 
@@ -48,12 +48,14 @@ Agent Trace 以 Span 为基本记录。一条 Span 由标识（`event_id`、`tra
 
 | 引擎 | 存储模型 | 版本 | 运行位置 | 角色 |
 |---|---|---|---|---|
-| XStore | 行存：行式表加 B-tree 索引 | GaussVector 103.0.0 release 构建 | ARM 主机 A、ARM 主机 B | 主对照的行存引擎 |
+| DStore | 行存：行式表加 B-tree 索引 | GaussVector 103.0.0 release 构建 | ARM 主机 A、ARM 主机 B | 主对照的行存引擎 |
 | ClickHouse | 列存：MergeTree data part | 23.3.10.5 | ARM 主机 A、ARM 主机 B | 主对照的列存引擎 |
 | openGauss | 行存：heap 表加 B-tree 索引，大值经 TOAST 处理 | 6.0.0 | x86 主机 | 参照对照的行存引擎 |
 | ClickHouse | 列存：MergeTree data part | 25.12.11.4 | x86 主机 | 参照对照的列存引擎 |
 
-XStore 是 GaussDB 系的行存引擎，SQL 接口与系统目录与 openGauss 同源；实验适配器复用 openGauss 的建表、写入与查询逻辑，差异见第 4.5 节。每台主机上的两个引擎构成一组同机对照。
+黄区两台 ARM 主机部署 GaussVector，配置为 `using DStore engine=on`，实验表使用 DStore 行存。本文以 DStore 标记这一被测存储引擎；实验未启用 XStore 特性。GaussVector 的 SQL 接口与系统目录与 openGauss 同源，实验适配器复用 openGauss 的建表、写入与查询逻辑，差异见第 4.5 节。每台主机上的两个引擎构成一组同机对照。
+
+报告文件名 `stage3-payload-xstore-report.md`、实验程序分支 `stage3/xstore-yellow-handoff`、适配器路径 `runner/xstore.py` 与环境变量 `XSTORE_USER` 保留为工件标识；这些标识对应本实验的 GaussVector / DStore 行存环境。
 
 两类存储模型对载荷位置的敏感点不同。行存以整行为读写单位，载荷是否留在主行内、是否被压缩或移出，决定读取普通列时要经过多少页；列存以列为读写单位，查询不投影载荷时不读取载荷列的数据流，载荷位置的影响转到排序键裁剪、part 数和多表连接上。第 4 章与第 5 章分别展开。
 
@@ -264,11 +266,11 @@ x86 主机已验证的结果（[阶段三实验报告](stage3-payload-x86-report
 | ClickHouse 25.12 | 资源争用（前台请求流与干扰流共用一个客户端进程时测得） | `detail_2m` 与 `trace_long` 阶段的前台 p50 相对 `quiet` 变化在 ±4% 以内；`batch_loop` 阶段三种数据库内布局的前台 list p95 由 18.45–28.19 ms 升至 104.12–124.22 ms，`same_table`、`separate`、`full_core` 的调度丢弃为 477、653、582 次，分表没有减轻干扰；`asset_ref` 的 p95 为 28.14 ms、调度丢弃 2 次 |
 | ClickHouse 25.12 | 存放与 part 状态 | 同一 part 状态下四种布局的 `list:first` 之比为 1.114–1.175，同一布局下四种状态之比为 2.90–3.27 |
 
-这些结果成立于本实验的输入与负载边界：载荷行只占 0.33%，数据集可完全驻留内存，前台每条请求流只有 2 个 worker（第 2.5、9.8 节）。载荷密度升高或数据超出内存时，读放大中的页数增量与缓冲池竞争随之放大。XStore 的大值存放方式决定其读放大的大小，由第 12 章的实测项确定。
+这些结果成立于本实验的输入与负载边界：载荷行只占 0.33%，数据集可完全驻留内存，前台每条请求流只有 2 个 worker（第 2.5、9.8 节）。载荷密度升高或数据超出内存时，读放大中的页数增量与缓冲池竞争随之放大。DStore 的大值存放方式决定其读放大的大小，由第 12 章的实测项确定。
 
 ## 4. 行存引擎中的长载荷
 
-本章以 `same_table` 的建表语句为共同实例，适用于 openGauss 与 XStore。
+本章以 `same_table` 为例展示 openGauss 与 DStore 行存表共用的逻辑列与索引。黄区在已启用 DStore engine 的 GaussVector 环境中使用 DStore 行存表，执行时按第 4.5 节调整 SQL。
 
 ### 4.1 表结构与索引
 
@@ -288,7 +290,7 @@ CREATE INDEX events_trace_idx ON events (project_id, trace_id, start_time, event
 按声明顺序说明与载荷有关的部分：
 
 1. `event_id TEXT NOT NULL PRIMARY KEY` 建立唯一 B-tree 索引 `events_pkey`，用于按事件标识定位一行，也用于 `separate` 的两表连接。
-2. `payload TEXT` 保存载荷的 UTF-8 文本。`TEXT` 为变长类型，默认存储策略允许压缩与移出主行，见第 4.2 节。
+2. `payload TEXT` 保存载荷的 UTF-8 文本。openGauss 的 `TEXT` 默认存储策略允许压缩与移出主行；DStore 的实际存放与压缩方式由行存探针确定，见第 4.2 节。
 3. `events_list_idx` 的列顺序与列表查询的过滤和排序一致：先按项目等值、再按时间范围、最后按 `event_id` 打破并列，使 keyset 分页可以沿索引顺序读取一页。
 4. `events_trace_idx` 服务单条详情与完整 Trace：详情查询给出项目、Trace、时间与事件标识四个等值条件，Trace 查询给出项目与 Trace 等值加时间范围。
 
@@ -311,7 +313,7 @@ events 的一行（载荷留在主行）
 
 载荷外置时，列表查询沿索引取得 heap tuple 后只读取普通列，不访问 TOAST relation；载荷留在主行时，heap 页同时容纳载荷字节，同样行数的普通列分散在更多页上，沿索引回表读取的页数随之增加。
 
-XStore 的大值存放位置、压缩方式与页组织由实测确定，依据是行存探针（`experiments/json-storage-stage3/tools/probe_row_storage.py`）在完整载入 `main` workload 后采集的三项事实：各表的 `reltoastrelid` 与 `reloptions`，按 profile 分组的 `sum(octet_length(payload))` 与 `sum(pg_column_size(payload))`，以及主矩阵每轮记录的 heap、index 与 TOAST 分项空间。在 openGauss 的语义下，`pg_column_size` 返回值的存储字节：值留在主行且未压缩时为 `octet_length` 加 4 字节头部，值外置且未压缩时等于 `octet_length`，值被压缩时小于 `octet_length`。两个量的比值只区分"压缩"与"未压缩"，值在主行还是外置由 `reltoastrelid` 与 TOAST 分项空间判定。
+DStore 的大值存放位置、压缩方式与页组织由实测确定，依据是行存探针（`experiments/json-storage-stage3/tools/probe_row_storage.py`）在完整载入 `main` workload 后采集的三项事实：各表的 `reltoastrelid` 与 `reloptions`，按 profile 分组的 `sum(octet_length(payload))` 与 `sum(pg_column_size(payload))`，以及主矩阵每轮记录的 heap、index 与 TOAST 分项空间。在 openGauss 的语义下，`pg_column_size` 返回值的存储字节：值留在主行且未压缩时为 `octet_length` 加 4 字节头部，值外置且未压缩时等于 `octet_length`，值被压缩时小于 `octet_length`。两个量的比值只区分"压缩"与"未压缩"，值在主行还是外置由 `reltoastrelid` 与 TOAST 分项空间判定。
 
 ### 4.3 查询的访问路径
 
@@ -329,7 +331,7 @@ ORDER BY start_time, event_id LIMIT %s;
 ```
 
 ```sql
--- XStore 第一页：游标为空时省略游标条件
+-- DStore 第一页：游标为空时省略游标条件
 SELECT event_id, trace_id, project_id, start_time, profile,
        content_type, encoding, content_length,
        NULL::text AS preview, sha256, NULL::text AS payload_value
@@ -339,7 +341,7 @@ ORDER BY start_time, event_id LIMIT %s;
 ```
 
 ```sql
--- XStore 中间页：由游标条件推出的下界加同一游标的 OR 展开形式，cursor_time 绑定三次
+-- DStore 中间页：由游标条件推出的下界加同一游标的 OR 展开形式，cursor_time 绑定三次
 SELECT event_id, trace_id, project_id, start_time, profile,
        content_type, encoding, content_length,
        NULL::text AS preview, sha256, NULL::text AS payload_value
@@ -350,7 +352,7 @@ WHERE project_id = %s AND start_time >= %s AND start_time < %s
 ORDER BY start_time, event_id LIMIT %s;
 ```
 
-行构造器 `(start_time, event_id) > (c_t, c_id)` 可以直接作为复合索引的范围起点，索引扫描从游标位置开始，读到 256 行即停止。展开式与它逻辑等价，但优化器只有在把 `start_time > c_t OR (start_time = c_t AND …)` 识别为范围条件时才能从游标位置起扫；否则索引扫描从窗口起点 `start_time >= %s` 开始，把游标之前的索引项作为过滤条件逐行丢弃，中间页的读取量随游标位置增长。XStore 适配器在展开式之前增加被它蕴含的下界 `start_time >= c_t`，结果集不变，该下界是普通的范围条件，可以作为 Index Cond 使扫描从游标位置开始。行存探针在 XStore 的 `same_table` 上对 `list:middle` 的两种写法各执行一次 `EXPLAIN (ANALYZE, BUFFERS)`：不带下界的展开式与适配器发出的带下界写法，两份计划记录展开式本身能否作为范围起点，以及下界的作用。
+行构造器 `(start_time, event_id) > (c_t, c_id)` 可以直接作为复合索引的范围起点，索引扫描从游标位置开始，读到 256 行即停止。展开式与它逻辑等价，但优化器只有在把 `start_time > c_t OR (start_time = c_t AND …)` 识别为范围条件时才能从游标位置起扫；否则索引扫描从窗口起点 `start_time >= %s` 开始，把游标之前的索引项作为过滤条件逐行丢弃，中间页的读取量随游标位置增长。DStore 适配器在展开式之前增加被它蕴含的下界 `start_time >= c_t`，结果集不变，该下界是普通的范围条件，可以作为 Index Cond 使扫描从游标位置开始。行存探针在 DStore 的 `same_table` 上对 `list:middle` 的两种写法各执行一次 `EXPLAIN (ANALYZE, BUFFERS)`：不带下界的展开式与适配器发出的带下界写法，两份计划记录展开式本身能否作为范围起点，以及下界的作用。
 
 其余查询的访问路径：
 
@@ -365,20 +367,20 @@ ORDER BY start_time, event_id LIMIT %s;
 
 写入 190 个 block 后，程序对全部写目标执行 `ANALYZE`，更新优化器统计。该步骤计入查询就绪阶段（第 1.5 节）。
 
-### 4.5 XStore 适配
+### 4.5 DStore 适配
 
-XStore 适配器继承 openGauss 适配器，只在以下四处改写，改写内容随每次运行的布局定义写入运行清单：
+DStore 实验适配器（`runner/xstore.py`）继承 openGauss 适配器，在 GaussVector 已启用 DStore engine、使用 DStore 行存表的部署环境中运行。以下四处 SQL 与连接适配随每次运行的布局定义写入运行清单：
 
 | 项 | 改写 | 对逻辑结果的影响 |
 |---|---|---|
-| `framework` 列 | 去掉 `NOT NULL`，因为引擎把空字符串视为 NULL | 数据核对时把 NULL 还原为空字符串，逻辑记录不变 |
+| `framework` 列 | 去掉 `NOT NULL`，本次 GaussVector 部署的 SQL 语义将空字符串视为 NULL | 数据核对时把 NULL 还原为空字符串，逻辑记录不变 |
 | keyset 游标 | 非空游标的行构造器比较展开为第 4.3 节的 OR 形式，并在其前增加由游标条件推出的下界 `start_time >= cursor_time`；空游标（第一页）省略游标条件 | 结果集不变；下界使索引范围从游标处开始 |
 | 可见性计数 | 写入后核对可见行数的 `count(*) FILTER (WHERE …)` 改写为 `count(CASE WHEN … END)` | 无 |
 | 连接 | 经本机 Unix domain socket 以 trust 认证连接，运行账号由 `XSTORE_USER` 提供 | 无 |
 
 ### 4.6 行存的访问证据
 
-一轮的全部正式样本与批量内存诊断结束后，程序对每个成功样本的语句与绑定值重新执行一次 `EXPLAIN (ANALYZE, BUFFERS)`，保存计划文本；随后读取一次 `pg_stat_user_indexes.idx_scan`。该计数是本轮 schema 建立以来的累计值，包含载入、数据核对、预热、正式样本与 EXPLAIN 重新执行，用来证明索引被实际使用，不能换算为单个样本的索引访问次数。计划中缺少 Buffers 行时（XStore 的计划不输出该行），访问结构记为"有索引路径、无缓冲证据"。运行清单中的 `scanned_rows` 取自计划文本中第一个 `actual … rows=` 的值，即计划顶层节点的实际输出行数；列表查询的顶层节点是 `Limit`，该值等于返回行数，不等于底层扫描读取的索引项数。底层读取量从计划中的扫描节点与 `Rows Removed by Filter` 读出。行存没有与 ClickHouse `read_bytes` 对应的扫描字节计数，该字段记为 `unavailable`。
+一轮的全部正式样本与批量内存诊断结束后，程序对每个成功样本的语句与绑定值重新执行一次 `EXPLAIN (ANALYZE, BUFFERS)`，保存计划文本；随后读取一次 `pg_stat_user_indexes.idx_scan`。该计数是本轮 schema 建立以来的累计值，包含载入、数据核对、预热、正式样本与 EXPLAIN 重新执行，用来证明索引被实际使用，不能换算为单个样本的索引访问次数。计划中缺少 Buffers 行时（本次 GaussVector 构建采集的 EXPLAIN 计划未包含该行），访问结构记为"有索引路径、无缓冲证据"。运行清单中的 `scanned_rows` 取自计划文本中第一个 `actual … rows=` 的值，即计划顶层节点的实际输出行数；列表查询的顶层节点是 `Limit`，该值等于返回行数，不等于底层扫描读取的索引项数。底层读取量从计划中的扫描节点与 `Rows Removed by Filter` 读出。行存没有与 ClickHouse `read_bytes` 对应的扫描字节计数，该字段记为 `unavailable`。
 
 ### 4.7 行存的影响因素
 
@@ -621,7 +623,7 @@ experiments/json-storage-stage3/
 ├── generator/generate_payloads.py      载荷生成与 truth
 ├── runner/common.py                    逻辑记录、查询与证据的公共类型
 ├── runner/opengauss.py                 行存适配器
-├── runner/xstore.py                    XStore 适配器，继承行存适配器
+├── runner/xstore.py                    DStore 适配器，继承行存适配器
 ├── runner/clickhouse.py                列存适配器
 ├── runner/assets.py                    内容寻址对象存储与解析器
 ├── runner/run_layout_matrix.py         主矩阵：写入、维护、测量、校验、清理
@@ -815,15 +817,15 @@ ORDER BY start_time, event_id;
 | ClickHouse | ARM 运行版本 | 23.3.10.5 | 安装包 | 鲲鹏 920 为 ARMv8.2-A 且无 SVE，23.8 及以后的官方 ARM64 构建在该处理器上无法执行 |
 | 行存 | 索引 | 每张事件表主键加两条复合 B-tree | 建表语句 | 提供按键定位、列表与 Trace 的访问路径 |
 | 行存 | 查询前维护 | `ANALYZE` | 写入完成后 | 使优化器统计覆盖全部数据 |
-| XStore | 构建类型 | release | 服务端构建 | debug 构建的耗时不具可比性 |
+| GaussVector（DStore 行存） | 构建类型 | release | 服务端构建 | debug 构建的耗时不具可比性 |
 
-ClickHouse 服务端参数的生效值在服务就绪后读取并保存；XStore 的构建提交、构建命令、二进制摘要与版本查询结果按主机记录。
+ClickHouse 服务端参数的生效值在服务就绪后读取并保存；GaussVector 的构建提交、构建命令、二进制摘要与版本查询结果按主机记录。
 
 ## 11. 两套环境与可比性边界
 
 | 项 | ARM 主机 A | ARM 主机 B | x86 主机 |
 |---|---|---|---|
-| 引擎 | XStore、ClickHouse 23.3.10.5 | XStore、ClickHouse 23.3.10.5 | openGauss 6.0.0、ClickHouse 25.12.11.4 |
+| 引擎 | DStore、ClickHouse 23.3.10.5 | DStore、ClickHouse 23.3.10.5 | openGauss 6.0.0、ClickHouse 25.12.11.4 |
 | 处理器 | 鲲鹏 920 | 鲲鹏 920 | x86-64，8 CPU |
 | 运行方式 | 原生安装，两引擎串行 | 原生安装，两引擎串行 | 容器，两引擎串行 |
 
@@ -835,13 +837,13 @@ ClickHouse 服务端参数的生效值在服务就绪后读取并保存；XStore
 
 | 项 | 确定依据 |
 |---|---|
-| XStore 大值留在主行还是外置、是否压缩 | 行存探针的 `reltoastrelid`、`pg_column_size` 与 `octet_length`；各表 TOAST 分项空间 |
-| XStore 展开式游标能否作为索引范围起点，带下界写法的索引范围 | 行存探针的两种写法计划；主矩阵 `list:middle` 与 `preview:middle` 计划中的 Index Cond 与 `Rows Removed by Filter` |
-| XStore 计划的缓冲证据 | 主矩阵计划文本是否含 Buffers 行 |
+| DStore 大值留在主行还是外置、是否压缩 | 行存探针的 `reltoastrelid`、`pg_column_size` 与 `octet_length`；各表 TOAST 分项空间 |
+| 本次 GaussVector 构建对展开式游标的索引范围识别，及带下界写法的索引范围 | 行存探针的两种写法计划；主矩阵 `list:middle` 与 `preview:middle` 计划中的 Index Cond 与 `Rows Removed by Filter` |
+| 本次 GaussVector 构建的计划缓冲证据 | 主矩阵计划文本是否含 Buffers 行 |
 | ClickHouse 23.3 上 `separate` 右表的读取范围 | `separate` 详情与 Trace 的 `read_rows` 与计划中的右表 `Parts`、`Granules` |
 | ClickHouse 23.3 上各表的 granule 划分 | 各表 mark 数与列表查询的 `read_rows` |
 | 行存持续写入阶段的写入代价 | 混合负载 `continuous_ingest` 阶段的写入样本与存储快照 |
-| XStore 同表载荷对列表与预览的影响幅度 | 同机 `same_table` 与其余三种布局的列表、预览 p50 之比，计划中的访问节点与读取量 |
+| DStore 同表载荷对列表与预览的影响幅度 | 同机 `same_table` 与其余三种布局的列表、预览 p50 之比，计划中的访问节点与读取量 |
 | 两个引擎上并发载荷读写对前台的干扰幅度 | 混合负载各阶段相对 `quiet` 的前台 p50、p95 与调度丢弃数 |
 | 两个引擎的服务端参数与构建身份 | 各主机的构建记录、参数生效值与运行清单 |
 

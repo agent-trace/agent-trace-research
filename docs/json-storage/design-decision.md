@@ -4,17 +4,17 @@
 >
 > 状态：逻辑模型与参数取值已确定；标注为"待定"的条目需要第 7 节列出的实验才能取值
 >
-> 证据基线：x86 主机（8 核、16,291,948 KiB 内存）上的 openGauss 6.0.0 build `aee4abd5` 与 ClickHouse 25.12.11.4；两台 ARM 主机（鲲鹏 920）上的 XStore（GaussVector 103.0.0 release）与 ClickHouse 23.3.10.5
+> 证据基线：x86 主机（8 核、16,291,948 KiB 内存）上的 openGauss 6.0.0 build `aee4abd5` 与 ClickHouse 25.12.11.4；两台 ARM 主机（鲲鹏 920）上的 DStore（GaussVector 103.0.0 release）与 ClickHouse 23.3.10.5
 >
 > 语料画像：nvidia/Open-SWE-Traces 抽样，9 个 config、3,600 条轨迹、586,851 条消息
 
-本文把[阶段一](stage1-multifield-report.md)、[阶段二](stage2-representation-report.md)和阶段三（[x86 报告](stage3-payload-x86-report.md)、[XStore 报告](stage3-payload-xstore-report.md)、[三台主机汇总](stage3-payload-briefing.md)）的实验结果，连同真实轨迹语料画像，收敛为一份可实施的存储设计。每条参数同时给出取值、支持它的证据和适用边界。[JSON 存储原理](stage2-representation-principles.md)解释 TOAST、MergeTree part 和列式压缩的一般机制，[设计调研](design-survey.md)给出代表性系统的横向比较。
+本文把[阶段一](stage1-multifield-report.md)、[阶段二](stage2-representation-report.md)和阶段三（[x86 报告](stage3-payload-x86-report.md)、[DStore 报告](stage3-payload-xstore-report.md)、[三台主机汇总](stage3-payload-briefing.md)）的实验结果，连同真实轨迹语料画像，收敛为一份可实施的存储设计。每条参数同时给出取值、支持它的证据和适用边界。[JSON 存储原理](stage2-representation-principles.md)解释 TOAST、MergeTree part 和列式压缩的一般机制，[设计调研](design-survey.md)给出代表性系统的横向比较。
 
 ## 1. 设计概要
 
-存储模型分四层：强类型分析列承担过滤、分组和聚合；动态属性列承担长尾属性的路径分析；长 payload 附带 preview 和内容元数据，其物理位置按引擎的大值存放方式确定；字节级审计需求由独立的原文表承担。openGauss 与 ClickHouse 上 payload 与分析列同表；XStore 把 payload 不压缩地存放在主表 heap 内，payload 因此放入独立的完整表，列表与统计查询读取不含 payload 的核心表。
+存储模型分四层：强类型分析列承担过滤、分组和聚合；动态属性列承担长尾属性的路径分析；长 payload 附带 preview 和内容元数据，其物理位置按引擎的大值存放方式确定；字节级审计需求由独立的原文表承担。openGauss 与 ClickHouse 上 payload 与分析列同表；DStore 把 payload 不压缩地存放在主表 heap 内，payload 因此放入独立的完整表，列表与统计查询读取不含 payload 的核心表。
 
-| 决策项 | openGauss | XStore | ClickHouse |
+| 决策项 | openGauss | DStore | ClickHouse |
 |---|---|---|---|
 | 长 payload 布局 | `same_table` | `full_core` | `same_table` |
 | 动态属性表示 | `JSONB` | 待定 | `JSON(max_dynamic_paths=100)`；ARM 平台待定 |
@@ -45,7 +45,7 @@
 |---|---|---|
 | 分析列 | trace/span intrinsic 字段、时间、project、span 类型、框架、稳定 GenAI 字段 | 普通强类型列在两个引擎上都支持索引、排序键和列裁剪 |
 | 动态属性 | 长尾属性与低频路径 | 路径数量不受 schema 变更约束 |
-| payload | 完整输入输出消息、工具参数与结果 | 附 preview、`content_length`、`content_type`、`encoding` 和 `sha256`；openGauss 与 ClickHouse 上与分析列同表，XStore 上放入完整表 |
+| payload | 完整输入输出消息、工具参数与结果 | 附 preview、`content_length`、`content_type`、`encoding` 和 `sha256`；openGauss 与 ClickHouse 上与分析列同表，DStore 上放入完整表 |
 | 原文 | 首次解析前的 UTF-8 bytes | 签名、字节级审计和精确重放需要，与逻辑文档恢复分离 |
 
 preview 按 Unicode code point 截取 payload 逻辑文本起始部分。列表与预览查询不投影 payload 列。
@@ -86,7 +86,9 @@ ENGINE=MergeTree ORDER BY (project_id, start_time, event_id);
 
 Native JSON 无法单独保留 JSON null、空容器和含点号键的全部结构。需要完整逻辑文档恢复时，另设稀疏补全列保存受影响的顶层分支；该补全列的写入、空间、响应和客户端恢复成本全部计入方案。
 
-### 3.4 XStore
+### 3.4 DStore
+
+黄区部署 GaussVector，配置为 `using DStore engine=on`，实验表使用 DStore 行存，实验未启用 XStore 特性。本文以 DStore 标记这一被测存储引擎。以下示例给出 `full_core` 布局的逻辑列与索引，运行环境使用上述 DStore 配置。
 
 ```sql
 CREATE TABLE events_core (
@@ -105,21 +107,21 @@ CREATE INDEX events_core_trace_idx ON events_core (project_id, trace_id, start_t
 
 `events_full` 的列为 `events_core` 的全部列加 `payload TEXT`，建立同一组主键与两条复合 B-tree。每批写入在一个事务内先写 `events_full`、再写 `events_core`；列表、预览与统计读取 `events_core`，详情、Trace 与批量恢复读取 `events_full`，两条路径都不需要连接。
 
-XStore 把空字符串视为 NULL，可能为空的文本列（如 `framework`）不声明 `NOT NULL`，读取时把 NULL 还原为空字符串。`attributes` 的类型待 XStore 上的动态属性实验确定（第 4.3 节），上例沿用 openGauss 的 `JSONB`。
+本次 GaussVector 部署的 SQL 语义将空字符串视为 NULL，可能为空的文本列（如 `framework`）不声明 `NOT NULL`，读取时把 NULL 还原为空字符串。`attributes` 的类型待 DStore 上的动态属性实验确定（第 4.3 节），上例沿用 openGauss 的 `JSONB`。
 
 ## 4. 参数取值与判据
 
 ### 4.1 长 payload 布局
 
-取值由引擎的大值存放方式决定：openGauss 与 ClickHouse 取 `same_table`，XStore 取 `full_core`。
+取值由引擎的大值存放方式决定：openGauss 与 ClickHouse 取 `same_table`，DStore 取 `full_core`。
 
 | 引擎 | 大值存放 | 同表 payload 对不读 payload 的查询的影响 |
 |---|---|---|
 | openGauss | 超过约 2 KiB 的值压缩后移入 TOAST，主行只留指针，`same_table` 主表 heap 10.85 MB | 无，列表四布局都精确扫描 256 行 |
 | ClickHouse | 按列存放，`payload` 列以 ZSTD 压缩 | 列裁剪不读取 payload 列；同表 granule 更窄，列表读取更少（ARM 主机 A 第一页 10,541 对 32,768 行） |
-| XStore | 不压缩，存放在主表 heap 内，`same_table` 主表 heap 186.5 MB，无 payload 的窄表 11.0 MB | 按索引取一页不受影响；回表过滤大量行慢 2.1 倍，全表 `MAX` 聚合慢约 2.6–2.9 倍 |
+| DStore | 不压缩，存放在主表 heap 内，`same_table` 主表 heap 186.5 MB，无 payload 的窄表 11.0 MB | 按索引取一页不受影响；回表过滤大量行慢 2.1 倍，全表 `MAX` 聚合慢约 2.6–2.9 倍 |
 
-目标负载以过滤、分组、计数和分位数统计为主（第 2 节），这些查询在 XStore 上逐行访问大量行，同表 payload 使其读取的页数随 heap 膨胀而增加。XStore 因此把 payload 移出列表与统计查询读取的表。
+目标负载以过滤、分组、计数和分位数统计为主（第 2 节），这些查询在 DStore 上逐行访问大量行，同表 payload 使其读取的页数随 heap 膨胀而增加。DStore 因此把 payload 移出列表与统计查询读取的表。
 
 openGauss 与 ClickHouse 上的备选布局：
 
@@ -131,7 +133,7 @@ openGauss 与 ClickHouse 上的备选布局：
 
 `full_core` 是 ClickHouse 上唯一的备用选项：它在列表、详情和 Trace 三类场景上与 `same_table` 同量级，代价是 17% 空间和 60% 写入时间。仅当列表查询必须与详情表物理隔离时启用。
 
-XStore 上的备选布局（ARM 主机 B，时延单位 ms）：
+DStore 上的备选布局（ARM 主机 B，时延单位 ms）：
 
 | 指标 | `same_table` | `separate` | `full_core` | `asset_ref` |
 |---|---:|---:|---:|---:|
@@ -142,7 +144,7 @@ XStore 上的备选布局（ARM 主机 B，时延单位 ms）：
 | 写入合计 | 8,442 | 10,981 | 11,564 | 8,793 |
 | 总物理占用（相对 `same_table`） | 1.000 | 1.19 | 1.20 | 0.78 |
 
-`full_core` 与 `separate` 在读取上同量级，`full_core` 的详情与 Trace 只读一张表，不经过连接，与 ClickHouse 的备用布局一致，因此取 `full_core`。代价是写入合计增加约 37%（两台 ARM 主机一致）与 20% 空间。`asset_ref` 在大量中等对象下最慢，理由与 openGauss、ClickHouse 相同（第 4.2 节）；它在 XStore 上总占用最低，原因是库内 payload 本身不压缩。
+`full_core` 与 `separate` 在读取上同量级，`full_core` 的详情与 Trace 只读一张表，不经过连接，与 ClickHouse 的备用布局一致，因此取 `full_core`。代价是写入合计增加约 37%（两台 ARM 主机一致）与 20% 空间。`asset_ref` 在大量中等对象下最慢，理由与 openGauss、ClickHouse 相同（第 4.2 节）；它在 DStore 上总占用最低，原因是库内 payload 本身不压缩。
 
 ### 4.2 payload 外置
 
@@ -154,9 +156,9 @@ XStore 上的备选布局（ARM 主机 B，时延单位 ms）：
 | 外置的最大对象数量 | 单次批量恢复不超过约 200 个（待确认） |
 | 当前语料落入的区间 | 单对象 p99 为 361,196 bytes，每 Trace 约 80 个 generation span |
 
-真实分布中超过 512 KiB 的累积 prompt 占 0.10%，没有超过 2 MiB 的样本。目标负载因此落在"对象数量大、单对象中等"一侧，正是 `asset_ref` 表现最差的区间：1,280 个 64 KiB 对象的批量恢复中，`asset_ref` 在 XStore 上为库内布局的约 2 倍，在 ClickHouse 23.3 上为 5.4–7.4 倍。外置只对多模态 blob 这类确实达到 MiB 量级且数量少的内容成立。
+真实分布中超过 512 KiB 的累积 prompt 占 0.10%，没有超过 2 MiB 的样本。目标负载因此落在"对象数量大、单对象中等"一侧，正是 `asset_ref` 表现最差的区间：1,280 个 64 KiB 对象的批量恢复中，`asset_ref` 在 DStore 上为库内布局的约 2 倍，在 ClickHouse 23.3 上为 5.4–7.4 倍。外置只对多模态 blob 这类确实达到 MiB 量级且数量少的内容成立。
 
-前台隔离不作为外置的理由。各请求流分进程运行时，循环批量恢复、2 MiB 详情、长 Trace 与持续写入都没有明显拖慢前台列表，XStore 与 ClickHouse 23.3 的四种布局之间没有隔离差异（每条前台流 2 个 worker、20 次每秒）。
+前台隔离不作为外置的理由。各请求流分进程运行时，循环批量恢复、2 MiB 详情、长 Trace 与持续写入都没有明显拖慢前台列表，DStore 与 ClickHouse 23.3 的四种布局之间没有隔离差异（每条前台流 2 个 worker、20 次每秒）。
 
 启用外置时，一致性契约固定为：先原子发布对象，再写入事件引用；resolver 按引用、catalog 行和对象 bytes 做三方核对，不以 catalog 状态字段代替内容核对；失败模式收敛为可回收的孤儿对象。
 
@@ -179,7 +181,7 @@ ClickHouse 的取值按查询构成决定：
 
 | 平台 | 待定原因 | 候选 |
 |---|---|---|
-| XStore | `JSONB` 的取值来自 openGauss 的阶段一、二实验；XStore 与 openGauss 的 SQL 接口同源，其 `JSONB` 存储、路径查询与表达式索引未实测 | `JSONB` 或 JSON 文本 |
+| DStore | `JSONB` 的取值来自 openGauss 的阶段一、二实验；GaussVector 与 openGauss 的 SQL 接口同源，DStore 行存表上的 `JSONB` 存储、路径查询与表达式索引未实测 | `JSONB` 或 JSON 文本 |
 | ARM 主机上的 ClickHouse | 鲲鹏 920 为 ARMv8.2-A 且无 SVE，23.8 及以后的官方 ARM64 构建无法执行；可用的 23.3 不提供 `JSON(max_dynamic_paths=…)` 类型 | String JSON，或在该处理器上可运行的新版本自行构建后沿用 Native JSON |
 
 ### 4.4 访问结构
@@ -195,7 +197,7 @@ openGauss 的表达式索引覆盖查询中稳定出现的普通过滤列、JSON
 
 参数化计划、定制计划和 Hint 计划可能不同。上线前按实际驱动协议核对执行计划与 `pg_stat_user_indexes.idx_scan`，Hint 只用于诊断。
 
-XStore 沿用列表与 Trace 两个复合 B-tree，keyset 条件写为 `start_time >= :t AND (start_time > :t OR (start_time = :t AND event_id > :id))`。只有 OR 展开式时，该条件不被用作索引扫描的起点，中间页先过滤 13,652 行；加入由游标推出的下界后每页只过滤 6 行，两台 ARM 主机的中间页为 22.6–23.4 ms，与第一页同量级。XStore 上的表达式索引与 GIN 未实测，稳定过滤路径的取值待定。
+DStore 沿用列表与 Trace 两个复合 B-tree，keyset 条件写为 `start_time >= :t AND (start_time > :t OR (start_time = :t AND event_id > :id))`。只有 OR 展开式时，该条件不被用作索引扫描的起点，中间页先过滤 13,652 行；加入由游标推出的下界后每页只过滤 6 行，两台 ARM 主机的中间页为 22.6–23.4 ms，与第一页同量级。DStore 上的表达式索引与 GIN 未实测，稳定过滤路径的取值待定。
 
 ClickHouse 排序键按主导过滤前缀设计，取 `(project_id, start_time, event_id)`。把 `trace_id` 插入 project 与时间字段之间会扩大时间窗口查询的读取范围，该候选不适用本负载。
 
@@ -203,7 +205,7 @@ ClickHouse 排序键按主导过滤前缀设计，取 `(project_id, start_time, 
 
 ClickHouse 优先控制 part backlog。part 状态对列表查询的影响为 2.90–3.27 倍，布局选择只有 1.114–1.175 倍，两个因素正交。稳定的少量 part 已经接近单 part 的列表性能；`OPTIMIZE FINAL` 在详情、Trace 和批量恢复场景中使延迟上升，不作为常规操作。后台 merge 的资源成本计入写入预算：merge 开启时载入吞吐下降约 8.7%–9.2%。ARM 主机上的 ClickHouse 23.3 结论相同：暂停 merge、190 个 part 并存时列表为单 part 态的 2.66–5.59 倍（主机 A）与 3.1–5.4 倍（主机 B）。
 
-openGauss 与 XStore 在写入完成后执行 `ANALYZE`。
+openGauss 与 DStore 在写入完成后执行 `ANALYZE`。
 
 ## 5. 语料画像
 
@@ -262,17 +264,17 @@ whowhen_pro 的观测与之一致：其 attributes canonical JSON 文本长度 p
 | P1 | 内联与外置的精确阈值 | size 取 16 KiB–8 MiB 阶梯、count 取三档的二维扫描，产出阈值与对象数上限 |
 | P1 | 冷缓存下的详情与批量恢复 | 分冷热两组执行详情、Trace 与批量恢复，记录缓存控制动作与生效证据 |
 | P1 | 热点字段提升的判据 | 同一查询集下比较路径留在动态属性列、提升为普通列、提升后保留副本三种处理 |
-| P1 | XStore 上的动态属性表示与访问结构 | 在 XStore 上执行阶段一、二的 `JSONB` 与 JSON 文本对照，以及复合表达式 B-tree 与 GIN 的查询目标 |
+| P1 | DStore 上的动态属性表示与访问结构 | 在 DStore 上执行阶段一、二的 `JSONB` 与 JSON 文本对照，以及复合表达式 B-tree 与 GIN 的查询目标 |
 | P1 | ARM 主机上 ClickHouse 的动态属性表示 | 验证可在鲲鹏 920 上运行、提供 `JSON(max_dynamic_paths=…)` 的版本；或在 23.3 上测量 String JSON 的路径过滤与聚合成本 |
 | P2 | 保留期删除与引用回收 | 覆盖时间分区裁剪与行删除对空间、扫描量和恢复路径的影响 |
 | P2 | 更高前台并发、更小主机或冷数据下的混合负载 | 各请求流分进程运行，提高前台 worker 数与到达率，在更小规格主机或冷缓存下重测 |
-| P2 | 数据库内 LOB 引用 | 按 xstore 或 extension 的实际能力实现 `db_lob_ref`，单独汇总 |
+| P2 | 数据库内 LOB 引用 | 按 GaussVector / DStore 或 extension 的实际能力实现 `db_lob_ref`，单独汇总 |
 
-以下结论已充分，不再增加同条件下的对照：四种长 payload 布局在列表与预览上的差异、XStore 同表 payload 对大量行访问的影响、每条前台流 2 个 worker 时各布局的前台隔离性、动态路径预算的边界行为、ClickHouse part 状态与布局的正交性、`OPTIMIZE FINAL` 的适用范围。
+以下结论已充分，不再增加同条件下的对照：四种长 payload 布局在列表与预览上的差异、DStore 同表 payload 对大量行访问的影响、每条前台流 2 个 worker 时各布局的前台隔离性、动态路径预算的边界行为、ClickHouse part 状态与布局的正交性、`OPTIMIZE FINAL` 的适用范围。
 
 ## 8. 适用边界
 
-全部性能数字来自单机固定版本与热缓存的条件（XStore 每个查询样本新建连接，其余引擎复用连接），不覆盖完整 Collector/exporter 链路、多节点部署与故障恢复。跨引擎数字表示固定硬件下的完整方案对照，同时包含行存与列存、索引与排序键、执行器、协议、压缩编解码和后台维护的影响，不构成两个引擎之间的绝对性能排名，也不外推为生产容量。两台 ARM 主机与其他用户共用，主机 B 上测量窗口内主机 CPU 占用明显升高的阶段已从结论中排除。
+全部性能数字来自单机固定版本与热缓存的条件（DStore 每个查询样本新建连接，其余引擎复用连接），不覆盖完整 Collector/exporter 链路、多节点部署与故障恢复。跨引擎数字表示固定硬件下的完整方案对照，同时包含行存与列存、索引与排序键、执行器、协议、压缩编解码和后台维护的影响，不构成两个引擎之间的绝对性能排名，也不外推为生产容量。两台 ARM 主机与其他用户共用，主机 B 上测量窗口内主机 CPU 占用明显升高的阶段已从结论中排除。
 
 语料画像来自公开的软件工程 agent 轨迹数据集，覆盖文本类 payload，不覆盖多模态内容、其他任务域的 agent 和生产环境的查询频率构成。
 
@@ -284,7 +286,7 @@ whowhen_pro 的观测与之一致：其 attributes canonical JSON 文本长度 p
 - [阶段二报告](stage2-representation-report.md)
 - [阶段三原理与设计](stage3-payload-principles.md)
 - [阶段三实验报告（openGauss 与 ClickHouse 25.12）](stage3-payload-x86-report.md)
-- [阶段三 XStore 横向比较实验报告](stage3-payload-xstore-report.md)
+- [阶段三 DStore 横向比较实验报告](stage3-payload-xstore-report.md)
 - [阶段三组内汇报](stage3-payload-briefing.md)
 - [语料画像脚本](../../experiments/payload-profile/profile_open_swe.py)
 - [nvidia/Open-SWE-Traces](https://huggingface.co/datasets/nvidia/Open-SWE-Traces)
